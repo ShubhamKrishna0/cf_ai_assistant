@@ -38,6 +38,7 @@
             
             <div class="input-area">
                 <input type="text" id="messageInput" placeholder="Type your message..." />
+                <button id="voiceButton">🎤</button>
                 <button id="sendButton">Send</button>
             </div>
         </div>
@@ -45,11 +46,54 @@
 
     <script>
         const API_BASE = 'https://cf-ai-assistant.krishnashubham09.workers.dev';
+        const WS_BASE = 'wss://cf-ai-assistant.krishnashubham09.workers.dev';
         const sessionId = 'session_' + Math.random().toString(36).substr(2, 9);
+        
+        let websocket;
+        let useRealtime = true;
+        
+        function initWebSocket() {
+            websocket = new WebSocket(`${WS_BASE}/api/realtime`);
+            
+            websocket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'response') {
+                    addMessage(data.data.response);
+                } else if (data.type === 'error') {
+                    addMessage(`Error: ${data.message}`);
+                }
+                sendButton.disabled = false;
+                sendButton.textContent = 'Send';
+            };
+            
+            websocket.onerror = () => {
+                useRealtime = false;
+                console.log('WebSocket failed, falling back to HTTP');
+            };
+        }
+        
+        initWebSocket();
         
         const messagesDiv = document.getElementById('messages');
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
+        const voiceButton = document.getElementById('voiceButton');
+        
+        let recognition;
+        if ('webkitSpeechRecognition' in window) {
+            recognition = new webkitSpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+            
+            recognition.onresult = function(event) {
+                messageInput.value = event.results[0][0].transcript;
+            };
+            
+            recognition.onerror = function(event) {
+                console.error('Speech recognition error:', event.error);
+            };
+        }
 
         function addMessage(content, isUser = false) {
             const messageDiv = document.createElement('div');
@@ -68,32 +112,45 @@
             sendButton.disabled = true;
             sendButton.textContent = 'Sending...';
 
-            try {
-                const response = await fetch(`${API_BASE}/api/chat`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message, sessionId })
-                });
+            if (useRealtime && websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(JSON.stringify({ message, sessionId }));
+            } else {
+                try {
+                    const response = await fetch(`${API_BASE}/api/chat`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message, sessionId })
+                    });
 
-                const data = await response.json();
-                
-                if (data.error) {
-                    addMessage(`Error: ${data.error}`);
-                } else {
-                    addMessage(data.response);
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        addMessage(`Error: ${data.error}`);
+                    } else {
+                        addMessage(data.response);
+                    }
+                } catch (error) {
+                    addMessage(`Error: ${error.message}`);
                 }
-            } catch (error) {
-                addMessage(`Error: ${error.message}`);
+                
+                sendButton.disabled = false;
+                sendButton.textContent = 'Send';
             }
-
-            sendButton.disabled = false;
-            sendButton.textContent = 'Send';
+            
             messageInput.focus();
         }
 
         sendButton.addEventListener('click', sendMessage);
         messageInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') sendMessage();
+        });
+        
+        voiceButton.addEventListener('click', () => {
+            if (recognition) {
+                recognition.start();
+                voiceButton.textContent = '🔴';
+                setTimeout(() => voiceButton.textContent = '🎤', 3000);
+            }
         });
 
         messageInput.focus();

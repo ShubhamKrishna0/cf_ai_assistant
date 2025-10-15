@@ -9,6 +9,11 @@ binding = "AI"
 name = "CHAT_MEMORY"
 class_name = "ChatMemory"
 
+[[workflows]]
+binding = "CHAT_WORKFLOW"
+class_name = "ChatWorkflow"
+script_name = "cf-ai-assistant"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["ChatMemory"]

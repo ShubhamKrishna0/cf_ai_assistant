@@ -1,4 +1,6 @@
 export { ChatMemory } from './memory.js';
+export { ChatWorkflow } from './workflow.js';
+import { RealtimeHandler } from './realtime.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -22,6 +24,11 @@ export default {
       return handleHistory(request, env, corsHeaders);
     }
 
+    if (url.pathname === '/api/realtime' && request.headers.get('Upgrade') === 'websocket') {
+      const realtimeHandler = new RealtimeHandler(env);
+      return realtimeHandler.handleWebSocket(request);
+    }
+
     return new Response('AI Assistant API', {
       headers: { ...corsHeaders, 'Content-Type': 'text/plain' }
     });
@@ -39,33 +46,14 @@ async function handleChat(request, env, corsHeaders) {
       });
     }
 
-    const memoryId = env.CHAT_MEMORY.idFromName(sessionId);
-    const memory = env.CHAT_MEMORY.get(memoryId);
-
-    const historyResponse = await memory.fetch(new Request('http://memory/history'));
-    const history = await historyResponse.json();
-
-    const aiResponse = await env.AI.run('@cf/meta/llama-3.1-70b-instruct', {
-      messages: [
-        { role: 'system', content: 'You are a helpful AI assistant.' },
-        ...history.messages.slice(-5),
-        { role: 'user', content: message }
-      ]
+    const workflow = await env.CHAT_WORKFLOW.create({
+      id: `chat-${sessionId}-${Date.now()}`,
+      params: { message, sessionId }
     });
 
-    const assistantMessage = aiResponse.response;
-
-    await memory.fetch(new Request('http://memory/add', {
-      method: 'POST',
-      body: JSON.stringify({ role: 'user', content: message })
-    }));
-
-    await memory.fetch(new Request('http://memory/add', {
-      method: 'POST',
-      body: JSON.stringify({ role: 'assistant', content: assistantMessage })
-    }));
-
-    return new Response(JSON.stringify({ response: assistantMessage }), {
+    const result = await workflow.getResult();
+    
+    return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
 
